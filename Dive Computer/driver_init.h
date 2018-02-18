@@ -84,7 +84,6 @@ enum ram_isr_table_index {
  * peripherals. You may optionally turn off certain peripherals.
  *
  */
-uint8_t getSoundPin();
 void system_init(bool spiEnabled, bool i2cEnabled, bool soundEnabled);
 
 #ifdef __cplusplus

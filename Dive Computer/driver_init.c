@@ -136,11 +136,6 @@ void AON_SLEEP_TIMER0_register_isr(void)
 	*temp = (uint32_t)AON_SLEEP_TIMER0_Handler;
 }
 
-uint8_t getSoundPin() 
-{
-	return GPIO(GPIO_PORTA,7);
-}
-
 void system_init(bool spiEnabled, bool i2cEnabled, bool soundEnabled)
 {
 	init_mcu();
@@ -159,9 +154,12 @@ void system_init(bool spiEnabled, bool i2cEnabled, bool soundEnabled)
 	
 	if (soundEnabled) {
 		//For now I will hard code pins for sound here. They should be injected outside later.
-		uint8_t chipEnabledPin = GPIO(GPIO_PORTA,4);
-		uint8_t soundSignalPin = getSoundPin();
-		uint8_t soundZeroPin = GPIO(GPIO_PORTA,6);
+		uint8_t chipEnabledPin = SOUND_CHIP_ENABLE_PIN;
+		uint8_t soundSignalPin = SOUND_SIGNAL_PIN;
+		uint8_t soundZeroPin = SOUND_ZERO_PIN;
 		SOUND_pins_init(chipEnabledPin, soundSignalPin, soundZeroPin);
 	}
+	
+	gpio_set_pin_direction(LED_DEBUG_PIN, GPIO_DIRECTION_OUT);
+	gpio_set_pin_level(LED_DEBUG_PIN, true);
 }

@@ -1,3 +1,4 @@
+#include "atmel_start_pins.h"
 #include "driver_init.h"
 #include "sensors/LSM303DLHC.h"
 #include "sensors/MS5837.h"
@@ -37,7 +38,7 @@ volatile uint32_t ticks = 0; //Used for timing
 			if (sound_ticks > sound_toggle_limit) 
 			{
 				// TODO: Fix the method name for getSoundPin or make it a config function.
-				uint8_t sound_pin = getSoundPin();
+				uint8_t sound_pin = SOUND_SIGNAL_PIN;
 				gpio_toggle_pin_level(sound_pin);
 				sound_ticks = 0;		
 			}
@@ -99,7 +100,7 @@ void sensors_init()
 {
 	// This code MS5837 sensor initiation freezes when the sensor is not connected.
 #ifdef I2C_ENABLED
-	MS5837_init(0b1110110);
+	MS5837_init(I2C_MS5837_ADDRESS);//0b1110110);
 #endif
 #ifdef LSM303_ENABLED
 	LSM303_init();
@@ -167,7 +168,7 @@ void run_dive_computer()
 #endif
     struct dive_record current_dive_record = {0, 0, 0, 0};
 	uint8_t log_status = 0;
-
+	int ledCounter = 0;
 	while(1)
 	{
 #ifdef I2C_ENABLED
@@ -176,6 +177,15 @@ void run_dive_computer()
 #else
 		depth = 0;
 #endif
+		ledCounter++;
+		if (ledCounter > 1000) {
+			ledCounter = 0;
+			gpio_toggle_pin_level(LED_DEBUG_PIN);
+		}
+	
+		if (temp_pressure.pressure > 100000) {
+			sound_on = true;
+		}
 		if(depth > DIVE_START_DEPTH)
 		{
 			if(!dive_in_progress)
