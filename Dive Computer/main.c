@@ -14,35 +14,62 @@
 //#define LSM303_ENABLED 1
 #define I2C_ENABLED 1
 #define SOUND_ENABLED 1
+//#define DEVICE_LOGGER 1
 //#define SPI_DISPLAY_ENABLED 1
 #define DIVE_START_DEPTH    (1.0)
-#define DIVE_END_DEPTH      (0.3)
+#define DIVE_END_DEPTH      (0.5)
 
 struct io_descriptor *io_i2c;
 struct timer_task TIMER_0_task;
 
 volatile uint32_t ticks = 0; //Used for timing
-
+static float alarm_depths[] = { 1.5, 5.0, 15.0};
+static bool alarm_triggered[] = { false, false, false};
+static const uint32_t alarm_freqs[] = { 2, 3, 4 };
 // TODO: Ideally we will separate this logic in the another file.
 #ifdef SOUND_ENABLED
 	struct timer_task SOUND_task;
 	uint32_t sound_ticks = 0;
-	static const uint32_t sound_toggle_limit = 3;
-	bool sound_on = true; // For debug only. This logic is controlled by alarm settings.
-
+	uint32_t sound_ticking_count = 0;
+	static uint32_t sound_ticking_max = 3000; // ~2 seconds
+	static uint32_t sound_toggle_limit = 3; // ~3KHz
+	bool sound_on = true; // This logic is controlled by alarm settings.
+	bool start_sound = true;
+	bool soun_limited_time = true; // we reduce number of switches to make it sound certain amount of time
+	
 	void sound_logic_run() 
 	{
 		if (sound_on) 
 		{
 			sound_ticks += 1;
+			// This switching the sound frequency
 			if (sound_ticks > sound_toggle_limit) 
 			{
-				// TODO: Fix the method name for getSoundPin or make it a config function.
 				uint8_t sound_pin = SOUND_SIGNAL_PIN;
 				gpio_toggle_pin_level(sound_pin);
-				sound_ticks = 0;		
+				sound_ticks = 0;
+				++sound_ticking_count;
 			}
+			// This turns sound off by time
+			
+			if (sound_ticking_count > sound_ticking_max) {
+				sound_ticking_count = 0;
+				sound_on = false;
+			}
+			
 		}
+	}
+	/* Duration is in seconds. 1,2,3... (default is 2)
+	 * Frequency is relative: 1, 2, 3.... (default is 3)
+	 */
+	static void make_sound(uint32_t duration, uint32_t frequency) {
+		if (sound_on) {
+			return;
+		}
+		sound_ticking_max = duration * 1000;
+		sound_toggle_limit = frequency;
+		sound_ticking_count = 0;
+		sound_on = true;
 	}
 
 	static void SOUND_generation_task(const struct timer_task *const timer_task)
@@ -129,8 +156,11 @@ void dive_computer_init()
 	peripherals_init();
 	sensors_init();
 	screen_init();
+#ifdef DEVICE_LOGGER
 	init_logger();
-	//log_erase(); // To start logging all over
+	log_erase(); // To start logging all over
+#endif
+	
 	TIMER_0_init();
 #ifdef SOUND_ENABLED	 
 	sound_init();
@@ -159,50 +189,69 @@ void run_dive_computer()
 	float_t depth = 0;
 	bool dive_in_progress = false;
 	struct time dive_time = {0, 0};
+#ifdef DEVICE_LOGGER
 	uint8_t dive_id = get_last_dive_id();
 	uint32_t start_dive_timestamp = 0;
+	struct dive_record current_dive_record = {0, 0, 0, 0};
+	uint8_t log_status = 0;
+#endif
 #ifdef SPI_DISPLAY_ENABLED
 	ST7735_drawBitmap(0, 0, splashscreen, 128, 128, ST7735_WHITE);
 	delay(1000);
 	fastFillRect(0, 0, 128, 128, ST7735_BLACK);
 #endif
-    struct dive_record current_dive_record = {0, 0, 0, 0};
-	uint8_t log_status = 0;
+
 	int ledCounter = 0;
+	int i = 0;
+	uint32_t last_beep = 1;
+	//Initial sound
+	if (start_sound) {
+		make_sound(1, 2);
+	}
 	while(1)
 	{
+		//may be we can for debug make it beep every minute
+		if ((ticks / 60) > last_beep) {
+			last_beep = ticks / 60;
+			make_sound(1, 3);
+		}
 #ifdef I2C_ENABLED
 		MS5857_get_measurements(DEFAULT_PRESSURE_ACCURACY, &temp_pressure);
 		depth = pressure_to_depth(temp_pressure.pressure * 10);
 #else
 		depth = 0;
+		sound_on = false;
 #endif
 		ledCounter++;
-		if (ledCounter > 1000) {
+		if (ledCounter > 3000) {
 			ledCounter = 0;
 			gpio_toggle_pin_level(LED_DEBUG_PIN);
 		}
 	
-		if (temp_pressure.pressure > 100000) {
-			sound_on = true;
-		}
 		if(depth > DIVE_START_DEPTH)
 		{
 			if(!dive_in_progress)
 			{
 				//New dive
+#ifdef DEVICE_LOGGER
 				dive_id++;
 				start_dive_timestamp = ticks;
+#endif
 			}
 			dive_in_progress = true;
 		}
 		else if (depth < DIVE_END_DEPTH)
 		{
 			dive_in_progress = false;
+			for(i=0;i < 3;i++) {
+				alarm_triggered[i] = false;
+			}
+			//Stopping sound by depth is not a good idea. We instead use time.
 		}
 		
 		if(dive_in_progress)
 		{
+#ifdef DEVICE_LOGGER
 			uint32_t current_dive_timestamp = ticks - start_dive_timestamp;
 			dive_time.minute = current_dive_timestamp / 60;
 			dive_time.second = current_dive_timestamp % 60;
@@ -212,6 +261,14 @@ void run_dive_computer()
 			current_dive_record.temperature = temp_pressure.temperature;
 			current_dive_record.pressure = temp_pressure.pressure;
 			log_status = log_dive_record(&current_dive_record);
+#endif
+			//Sound logic is here
+			for(i=0;i < 3;i++) {
+				if ( (!alarm_triggered[i]) && (depth > alarm_depths[i]) && (depth < alarm_depths[i]+2.0) ) {
+					alarm_triggered[i] = true;
+					make_sound(3, alarm_freqs[i]);
+				}
+			}
 		}
 
 #ifdef LSM303_ENABLED
