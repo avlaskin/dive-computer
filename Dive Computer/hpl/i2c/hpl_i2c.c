@@ -562,10 +562,17 @@ int32_t _i2c_m_sync_transfer(struct _i2c_m_sync_device *const i2c_dev, struct _i
 		i2c_dev->service.msg.flags &= ~I2C_M_BUSY;
 		return ret;
 	}
-
+	int count = 0;
+	int max_count = 20000;
 	if (msg->flags & I2C_M_RD) {
 		do {
-			while (!hri_i2c_get_RECEIVE_STATUS_RX_FIFO_NOT_EMPTY_bit(hw)) {
+			while (!hri_i2c_get_RECEIVE_STATUS_RX_FIFO_NOT_EMPTY_bit(hw) && count < max_count) {
+				count++;
+			}
+			if (count >= max_count) {
+				_i2c_send_stop(hw);
+				i2c_dev->service.msg.flags &= ~I2C_M_BUSY;
+				return I2c_ERR_PACKAGE_COLLISION;
 			}
 			msg->buffer[counter++] = hri_i2c_read_RECEIVE_DATA_RX_BYTE_bf(hw);
 		} while (counter < msg->len);
@@ -575,8 +582,14 @@ int32_t _i2c_m_sync_transfer(struct _i2c_m_sync_device *const i2c_dev, struct _i
 			}
 			hri_i2c_write_TRANSMIT_DATA_reg(hw, msg->buffer[counter++]);
 		} while (counter < msg->len);
-
-		while (!hri_i2c_get_TRANSMIT_STATUS_TX_FIFO_EMPTY_bit(hw)) {
+		count = 0;
+		while (!hri_i2c_get_TRANSMIT_STATUS_TX_FIFO_EMPTY_bit(hw) && count < max_count) {
+			count++;
+		}
+		if (count >= max_count) {
+				_i2c_send_stop(hw);
+				i2c_dev->service.msg.flags &= ~I2C_M_BUSY;
+				return I2c_ERR_PACKAGE_COLLISION;
 		}
 	}
 

@@ -33,7 +33,7 @@ static const uint32_t alarm_freqs[] = { 2, 3, 4 };
 	uint32_t sound_ticking_count = 0;
 	static uint32_t sound_ticking_max = 3000; // ~2 seconds
 	static uint32_t sound_toggle_limit = 3; // ~3KHz
-	bool sound_on = true; // This logic is controlled by alarm settings.
+	bool sound_on = false; // This logic is controlled by alarm settings.
 	bool start_sound = true;
 	bool soun_limited_time = true; // we reduce number of switches to make it sound certain amount of time
 	
@@ -202,32 +202,42 @@ void run_dive_computer()
 #endif
 
 	int ledCounter = 0;
+	int divider = 50;
 	int i = 0;
-	uint32_t last_beep = 1;
+#ifdef SOUND_ENABLED
+	uint32_t last_beep = 0;
 	//Initial sound
 	if (start_sound) {
 		make_sound(1, 2);
 	}
+#endif
 	while(1)
 	{
-		//may be we can for debug make it beep every minute
-		if ((ticks / 60) > last_beep) {
-			last_beep = ticks / 60;
-			make_sound(1, 3);
-		}
+
+		
 #ifdef I2C_ENABLED
 		MS5857_get_measurements(DEFAULT_PRESSURE_ACCURACY, &temp_pressure);
 		depth = pressure_to_depth(temp_pressure.pressure * 10);
 #else
 		depth = 0;
-		sound_on = false;
+		//sound_on = false;
 #endif
 		ledCounter++;
 		if (ledCounter > 3000) {
 			ledCounter = 0;
 			gpio_toggle_pin_level(LED_DEBUG_PIN);
 		}
-	
+#ifdef SOUND_ENABLED
+		if (temp_pressure.pressure < 9000) {
+			make_sound(1, 1);
+		}
+		//may be we can for debug make it beep every minute
+		if ((ticks / divider) > last_beep) {
+			
+			last_beep = ticks / divider;
+			make_sound(1, 3);
+		}
+#endif
 		if(depth > DIVE_START_DEPTH)
 		{
 			if(!dive_in_progress)
@@ -262,6 +272,7 @@ void run_dive_computer()
 			current_dive_record.pressure = temp_pressure.pressure;
 			log_status = log_dive_record(&current_dive_record);
 #endif
+#ifdef SOUND_ENABLED
 			//Sound logic is here
 			for(i=0;i < 3;i++) {
 				if ( (!alarm_triggered[i]) && (depth > alarm_depths[i]) && (depth < alarm_depths[i]+2.0) ) {
@@ -269,7 +280,9 @@ void run_dive_computer()
 					make_sound(3, alarm_freqs[i]);
 				}
 			}
+#endif
 		}
+
 
 #ifdef LSM303_ENABLED
 		status = read_accelerometer(&acceleration_vector);
